@@ -1,18 +1,22 @@
-import imaplib, email, os
+import imaplib, email, os, re
 import datetime
-import pdfkit
+# import pdfkit
+import requests
+import pdfgen
 from bs4 import BeautifulSoup
 # user = 'your_email'
 # password = 'your_password'
 # imap_url = 'imap.gmail.com'
 #Where you want your attachments to be saved (ensure this directory exists) 
-attachment_dir = '/Users/shovon/Scripts/Uber-Receipts/receipts'
+attachment_dir = './temp'
 # sets up the auth
 def auth(user,password,imap_url):
     con = imaplib.IMAP4_SSL(imap_url)
     con.login(user,password)
+    print('auth done')
     return con
 # extracts the body from the email
+
 def get_body(msg):
     if msg.is_multipart():
         return get_body(msg.get_payload(0))
@@ -20,16 +24,21 @@ def get_body(msg):
         return msg.get_payload(None,True)
 
 
+    
 def save_email(num, subject, body):
     with open("index.html", 'w') as f:
         f.write(body)
         file_name = str(num.decode('utf-8'))
-        pdfkit.from_file('index.html', f'receipts/{num}.pdf')
-        # make_html_images_inline("index.html", "receipts/uber.pdf")
+    make_html_images_inline("index.html", "index1.html")
+    num=num.decode("utf-8")
+    # pdfkit.from_file('index1.html', f'receipts/{num}.pdf')
+    pdfgen.sync.from_file('index1.html', f'receipts/{num}.pdf')
+
     # with open("receipts/" + str(num.decode('utf-8')) + ".pdf", "w") as f:
     #     f.write(subject)
     #     f.write("\n\n")
     #     f.write(body)
+    
 def guess_type(filepath):
     """
     Return the mimetype of a file, given it's path.
@@ -46,8 +55,10 @@ def guess_type(filepath):
         return magic.from_file(filepath, mime=True)
     except ImportError:
         import mimetypes
-        return mimetypes.guess_type(filepath)[0]
-
+        typt = mimetypes.guess_type(filepath)[0]
+        if typt == 'None':
+            return 'image/gif'
+        return typt
 def file_to_base64(filepath):
     """
     Returns the content of a file as a Base64 encoded string.
@@ -60,6 +71,7 @@ def file_to_base64(filepath):
     with open(filepath, 'rb') as f:
         encoded_str = base64.b64encode(f.read())
     return encoded_str
+    
 def make_html_images_inline(in_filepath, out_filepath):
     """
     Takes an HTML file and writes a new version with inline Base64 encoded
@@ -69,16 +81,41 @@ def make_html_images_inline(in_filepath, out_filepath):
     :param out_filepath: Output file path (HTML)
     :type out_filepath: str
     """
+    
+    
     basepath = os.path.split(in_filepath.rstrip(os.path.sep))[0]
     soup = BeautifulSoup(open(in_filepath, 'r'), 'html.parser')
     for img in soup.find_all('img'):
-        img_path = os.path.join(basepath, img.attrs['src'])
+        url = img.attrs['src']
+        page = requests.get(url)
+        fragment_removed = url.split("#")[0]  # keep to left of first #
+        query_string_removed = fragment_removed.split("?")[0]
+        f_name = os.path.basename(query_string_removed)
+        f_name = f'{attachment_dir}/{f_name}'
+        with open(f_name, 'wb') as f:
+            f.write(page.content)
+        img_path = os.path.join(basepath, f_name)
         mimetype = guess_type(img_path)
         img.attrs['src'] = \
-            "data:%s;base64,%s" % (mimetype, file_to_base64(img_path))
+            "data:%s;charset=utf-8;base64,%s" % (mimetype, file_to_base64(img_path).decode("utf-8"))
+    backgrounds = soup.find_all(background=True)
+    for back in backgrounds:
+        url = back.attrs['background']
+        page = requests.get(url)
+        fragment_removed = url.split("#")[0]  # keep to left of first #
+        query_string_removed = fragment_removed.split("?")[0]
+        f_name = os.path.basename(query_string_removed)
+        f_name = f'{attachment_dir}/{f_name}'
 
+        with open(f_name, 'wb') as f:
+            f.write(page.content)
+        img_path = os.path.join(basepath, f_name)
+        mimetype = guess_type(img_path)
+        back.attrs['background'] = \
+            "data:%s;charset=utf-8;base64,%s" % (mimetype, file_to_base64(img_path).decode("utf-8"))
     with open(out_filepath, 'w') as of:
         of.write(str(soup))
+        
 # allows you to download attachments
 def get_attachments(msg, con):
     for part in msg.walk():
@@ -122,16 +159,18 @@ def parse_html(message):
 
 def get_emails(conn):
     count = 0
-    result, data  = conn.search(None, '(SINCE "01-Feb-2020" BEFORE "01-Mar-2020" From "uber.bangladesh@uber.com" Subject "[Business]")')
+    result, data  = conn.search(None, 'SINCE 1-JAN-2021 FROM "uber.com" SUBJECT "trip"')
     # data = search('FROM', 'Uber Receipts', conn)
+    print('search done')
     try:
         for num in data[0].split():
             try:
+                # print('get data')
                 _, msg_data = conn.fetch(num, '(RFC822)')
+                # print('fetch mail')
                 for response_part in msg_data:
                     if isinstance(response_part, tuple):
                         msg = email.message_from_string(response_part[1].decode("utf-8"))
-                        
                         subject = msg['subject']
                         body = parse_html(msg)
                         # payload = msg.get_payload()
