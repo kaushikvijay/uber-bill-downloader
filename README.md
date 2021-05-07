@@ -11,8 +11,11 @@
     pip install --upgrade pip
     pip install -r requirements.txt
 
-# Modify dates
+# Modify file downloader.py
     result, data  = conn.search(None, 'SINCE 1-JAN-2021 FROM "uber.com" SUBJECT "trip"')
+    Here password needs to be API password from Gmail(you can also hardcode it here)    
+    password = input("Your password: ")
+
 
 # Run
     python3 downloader.py
